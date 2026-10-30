@@ -1,0 +1,20 @@
+{
+  "name": "plug-ad",
+  "private": true,
+  "scripts": {
+    "audio": "node audio/synth.mjs",
+    "studio": "node audio/synth.mjs && remotion studio src/index.ts",
+    "render": "node audio/synth.mjs && remotion render src/index.ts PlugPitch out/PLUG-pitch.mp4 --codec=h264 --crf=16 --audio-bitrate=256k --pixel-format=yuv420p"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.539",
+    "@remotion/fonts": "4.0.539",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "4.0.539"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "typescript": "^5.0.0"
+  }
+}

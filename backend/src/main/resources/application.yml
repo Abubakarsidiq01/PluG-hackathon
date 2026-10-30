@@ -1,0 +1,95 @@
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+  application:
+    name: plug-api
+  jackson:
+    property-naming-strategy: SNAKE_CASE
+    default-property-inclusion: non_null
+    deserialization:
+      fail-on-unknown-properties: true
+      fail-on-trailing-tokens: true
+    parser:
+      strict-duplicate-detection: true
+server:
+  address: ${PLUG_BIND_ADDRESS:127.0.0.1}
+  forward-headers-strategy: none
+  max-http-request-header-size: 8KB
+  shutdown: graceful
+  tomcat:
+    threads:
+      max: 50
+      min-spare: 5
+    max-connections: 200
+    accept-count: 50
+    connection-timeout: 5s
+    max-swallow-size: 16KB
+  error:
+    include-message: never
+    include-stacktrace: never
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+logging:
+  level:
+    root: INFO
+plug:
+  environment: ${PLUG_ENVIRONMENT:local}
+  requests-per-minute: 60
+  # The per-minute limits' window, in seconds. Only a disposable local run may shorten it.
+  rate-window-seconds: ${PLUG_RATE_WINDOW_SECONDS:60}
+  requests-v2:
+    enabled: ${PLUG_REQUESTS_V2_ENABLED:false}
+    # Intent extraction (ADR-009). Empty key: the built-in rules extract everything.
+    anthropic-api-key: ${ANTHROPIC_API_KEY:}
+    anthropic-model: ${PLUG_ANTHROPIC_MODEL:claude-sonnet-5-5}
+    intent-timeout: ${PLUG_INTENT_TIMEOUT:6s}
+  sms:
+    account-sid: ${PLUG_SMS_ACCOUNT_SID:}
+    auth-token: ${PLUG_SMS_AUTH_TOKEN:}
+    messaging-service-sid: ${PLUG_SMS_MESSAGING_SERVICE_SID:}
+    from-number: ${PLUG_SMS_FROM_NUMBER:}
+  staff:
+    # Staff accounts (ADR-013). none refuses staff sign-in with dependency_unavailable;
+    # development writes mail to build/development-staff-mail.txt on a local machine only;
+    # resend sends real email with the key from secret storage.
+    mail-delivery: ${PLUG_STAFF_MAIL_DELIVERY:none}
+    resend-api-key: ${RESEND_API_KEY:}
+    mail-from: ${PLUG_STAFF_MAIL_FROM:}
+    console-url: ${PLUG_STAFF_CONSOLE_URL:http://localhost:5173}
+    # The first owner's email. Used once, while no staff account exists.
+    owner-email: ${PLUG_STAFF_OWNER_EMAIL:}
+  identity:
+    # Off by default. The module needs a database, and turning it on is what the db and
+    # staging profiles do. With it off the auth routes are not registered at all, which is
+    # the rollback named in contracts/CHANGELOG.md.
+    enabled: false
+    # The publication date of the Terms and Privacy Policy the app displays. A sign-in that
+    # sends any other version is refused rather than recorded as agreement to unknown text.
+    consent-version: "2026-09-01"
+    pepper: ${PLUG_IDENTITY_PEPPER:}
+    # Decided here and written into the contract. Changing either after Phase 1 ripples
+    # through every screen that can be open when a session ends (manual.docx 27.2).
+    access-token-ttl: 15m
+    refresh-token-ttl: 30d
+    guest-refresh-token-ttl: 7d
+    phone-code-ttl: 10m
+    phone-code-attempts: 5
+    apple-client-id: ${PLUG_APPLE_CLIENT_ID:com.abubakarsidiq01.plug.app101}
+    apple-issuer: https://appleid.apple.com
+    apple-jwk-set-uri: https://appleid.apple.com/auth/keys
+    # Set twilio for real SMS. Development writes local test codes only; none fails closed.
+    phone-delivery: ${PLUG_IDENTITY_PHONE_DELIVERY:none}
+    google-client-id: ${PLUG_GOOGLE_SERVER_CLIENT_ID:}
+    # Exact addresses allowed to pass on their caller's address in X-Forwarded-For, such as
+    # the staff console's web server (ADR-013). Empty: every limit counts the connection.
+    trusted-proxies: ${PLUG_TRUSTED_PROXIES:}

@@ -1,0 +1,95 @@
+name: Backend
+on:
+  pull_request:
+  push:
+    branches: [main]
+# No path filter: a required status check that never starts on a given PR blocks
+# that PR forever under branch protection. Simpler to always run at this repo size.
+permissions:
+  contents: read
+jobs:
+  test:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.5
+        env:
+          POSTGRES_DB: plug
+          POSTGRES_USER: plug
+          POSTGRES_PASSWORD: ci-only-password
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U plug -d plug" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      PLUG_DATABASE_PASSWORD: ci-only-password
+      # The db profile runs the identity module, which refuses to start without a pepper.
+      # A CI-only value: it never leaves the runner and is not the one staging uses.
+      PLUG_IDENTITY_PEPPER: ci-only-identity-pepper-value-32chars
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          validate-wrappers: true
+      - run: ./gradlew test databaseTest build --no-daemon
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Run the Phase 0 and Phase 1 API collection
+        run: |
+          npm ci --prefix ../tools/bruno --ignore-scripts --no-audit --no-fund
+          java -jar build/libs/plug-api-0.0.1-SNAPSHOT.jar --spring.profiles.active=db > build/api-test-server.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8080/health/ready > /dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then echo "API did not become ready"; exit 1; fi
+          cd ../tests/api
+          ../../tools/bruno/node_modules/.bin/bru run --env local
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.9
+      - name: Install Phase 2 contract validation dependencies
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+      - name: Run the Phase 2 live contract and abuse suite
+        timeout-minutes: 15
+        working-directory: .
+        run: |
+          java -jar backend/build/libs/plug-api-0.0.1-SNAPSHOT.jar \
+            --spring.profiles.active=db --server.port=18080 \
+            --plug.requests-v2.enabled=true --plug.rate-window-seconds=10 > backend/build/phase2-api.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in $(seq 1 60); do
+            if ! kill -0 "$api_pid" 2>/dev/null; then echo "Phase 2 API exited before readiness"; exit 1; fi
+            if curl --fail --silent http://127.0.0.1:18080/health/ready > /dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then echo "Phase 2 API did not become ready"; exit 1; fi
+          # Same counts as staging, in a ten-second window (local only; RateWindow).
+          PHASE2_DISPOSABLE=1 PHASE2_BASE_URL=http://127.0.0.1:18080 PHASE2_RATE_WINDOW_SECONDS=10 \
+            PHASE2_REPORT=backend/build/phase2-live.json node tools/phase2-live.mjs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: backend-test-results
+          path: |
+            backend/build/reports/tests/
+            backend/build/phase2-live.json

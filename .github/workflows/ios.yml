@@ -1,0 +1,26 @@
+name: iOS
+on:
+  pull_request:
+  push:
+    branches: [main]
+# No path filter: a required status check that never starts on a given PR blocks
+# that PR forever under branch protection. Simpler to always run at this repo size.
+permissions:
+  contents: read
+jobs:
+  build-and-test:
+    name: iOS build and tests
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+      - run: brew install swiftlint && swiftlint lint --strict
+      - name: Build and test on an available iPhone simulator
+        run: |
+          device_id=$(xcrun simctl list devices available -j | ruby -rjson -e 'devices=JSON.parse(STDIN.read)["devices"].values.flatten; device=devices.find { |d| d["name"].start_with?("iPhone") }; abort "No iPhone simulator is available" unless device; puts device["udid"]')
+          # Ad-hoc signing, with no team and no profile: it needs no certificate on the
+          # runner, and it is what gives the app an entitlement. Without one the Keychain
+          # refuses every call and the credential-storage tests can only skip.
+          xcodebuild -project ios/Plug.xcodeproj -scheme Plug -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$device_id" \
+            CODE_SIGN_IDENTITY="-" CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" test

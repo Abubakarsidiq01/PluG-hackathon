@@ -1,0 +1,21 @@
+spring:
+  config:
+    import: classpath:application-db.yml
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${PLUG_JWT_ISSUER}
+  flyway:
+    url: ${PLUG_MIGRATION_DATABASE_URL}
+    user: ${PLUG_MIGRATION_DATABASE_USER}
+    password: ${PLUG_MIGRATION_DATABASE_PASSWORD}
+plug:
+  environment: staging
+  jwt-audience: ${PLUG_JWT_AUDIENCE}
+  identity:
+    enabled: true
+    # Required, not defaulted. Staging talks to real Apple and holds real session material,
+    # so a missing secret must stop the process rather than fall back to something weaker.
+    pepper: ${PLUG_IDENTITY_PEPPER}
+    apple-client-id: ${PLUG_APPLE_CLIENT_ID}

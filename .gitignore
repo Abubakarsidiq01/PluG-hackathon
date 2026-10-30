@@ -1,0 +1,48 @@
+.DS_Store
+.tools/
+.idea/
+.vscode/
+*.iml
+.env
+.env.*
+!.env.example
+.gradle/
+**/build/
+out/
+DerivedData/
+.xcode-derived-data*/
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+*.moved-aside
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+secrets/
+backend/src/main/resources/application-local.yml
+ios/Plug/Resources/Local.xcconfig
+node_modules/
+.next/
+playwright-report/
+test-results/
+evidence/**/*.mov
+
+# Local planning source and generated editor guidance (not shared artifacts).
+/PLUG_Production_Master_Manual*.docx
+/web/AGENTS.md
+/web/CLAUDE.md
+
+# Local Apple exports and runtime diagnostic dumps; share sanitized evidence instead.
+*.xcresult/
+*.xcarchive/
+*.dSYM/
+*.ipa
+*.hprof
+*.jfr
+
+# Generated document exports; editable reviewed sources live under docs/legal.
+/output/
+
+# Pitch video: generated score and local render output
+/pitch/public/score.wav
