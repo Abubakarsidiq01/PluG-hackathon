@@ -477,7 +477,7 @@ struct AskView: View {
         }
         .overlay {
             if DemoMode.isOn, !model.offers.isEmpty || model.placeQuestion?.status == .answered {
-                DemoBurst().id(answerState)
+                DemoBurst().id(answerState).allowsHitTesting(false)
             }
         }
         .navigationTitle("Your ask")
@@ -487,9 +487,13 @@ struct AskView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button { Task { await model.refresh() } } label: {
-                    Image(systemName: "arrow.clockwise").font(.system(size: 17, weight: .medium))
-                }.accessibilityLabel("Refresh").disabled(model.isWorking)
+                if DemoMode.isOn {
+                    Button("New ask") { demoNextAsk() }.disabled(model.isWorking).accessibilityIdentifier("demo-new-ask")
+                } else {
+                    Button { Task { await model.refresh() } } label: {
+                        Image(systemName: "arrow.clockwise").font(.system(size: 17, weight: .medium))
+                    }.accessibilityLabel("Refresh").disabled(model.isWorking)
+                }
             }
         }
     }
@@ -609,8 +613,54 @@ struct AskView: View {
         }
     }
 
+    /// On stage every offer fits on one screen, and each row still opens the full offer.
+    private func demoOffers(_ request: ServiceRequest) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("\(model.offers.count) \(model.offers.count == 1 ? "offer" : "offers")")
+                    .font(.system(.title2, design: .rounded, weight: .bold))
+                Text(offersTitle(request)).plugText(.bodySmall).foregroundStyle(PlugTokens.Color.ink600).lineLimit(1)
+            }
+            ForEach(orderedOffers) { offer in
+                NavigationLink { OfferDetailView(offer: offer, cached: model.isCached) } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(offer.businessName).font(.system(.headline, design: .rounded, weight: .bold)).lineLimit(1)
+                            Text("\(offer.availableAt.formatted(date: .omitted, time: .shortened)), \(distance(offer.distanceM)) away")
+                                .plugText(.caption).foregroundStyle(PlugTokens.Color.ink600).lineLimit(1)
+                            TruthBadge(label: offer.truthLabel)
+                        }
+                        Spacer(minLength: 8)
+                        Text(money(offer.priceCents, offer.currency))
+                            .font(.system(.title, design: .rounded, weight: .bold)).monospacedDigit()
+                        Image(systemName: "chevron.right").font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(PlugTokens.Color.ink600)
+                    }
+                    .padding(14)
+                    .background(PlugTokens.Color.card, in: RoundedRectangle(cornerRadius: 18))
+                    .foregroundStyle(PlugTokens.Color.ink900)
+                }
+                .buttonStyle(.plain)
+                .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
+            }
+            .animation(reduceMotion ? nil : .spring(duration: 0.55, bounce: 0.35), value: model.offers.count)
+        }
+    }
+
+    /// One tap to the next ask from anywhere on the answer page.
+    private func demoNextAsk() {
+        Task {
+            if model.request?.status.canCancel == true { await model.cancel() }
+            model.startAgain()
+            model.text = ""
+            showValidation = false
+        }
+    }
+
     @ViewBuilder private func offerList(_ request: ServiceRequest) -> some View {
-        if !model.offers.isEmpty {
+        if DemoMode.isOn, !model.offers.isEmpty {
+            demoOffers(request)
+        } else if !model.offers.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 // The headline is the result itself (design gate §16.8), not a sentence about it.
                 Text("\(model.offers.count) \(model.offers.count == 1 ? "offer" : "offers")")
@@ -770,14 +820,7 @@ struct AskView: View {
     @ViewBuilder private var actions: some View {
         if DemoMode.isOn, model.request?.status.canCancel == true {
             // On stage the next ask is one tap away; the request closes behind it.
-            Button("Ask something else") {
-                Task {
-                    await model.cancel()
-                    model.startAgain()
-                    model.text = ""
-                    showValidation = false
-                }
-            }
+            Button("Ask something else") { demoNextAsk() }
             .buttonStyle(FlowActionStyle(primary: true)).disabled(model.isWorking)
         } else if let request = model.request, request.status.canCancel {
             Button("Stop asking") { Task { await model.cancel() } }
@@ -806,6 +849,8 @@ struct AskView: View {
                 .padding(.horizontal, PlugTokens.Space.s4)
                 .padding(.vertical, PlugTokens.Space.s6)
         }
+        .scrollIndicators(.visible)
+        .scrollBounceBehavior(.always)
         .scrollDismissesKeyboard(.interactively)
         .background(PlugTokens.Color.paper)
     }
@@ -1482,11 +1527,13 @@ private struct DemoPop: ViewModifier {
 /// A short burst when a result lands. It sits above the page and never takes a tap.
 private struct DemoBurst: View {
     @State private var start = Date()
+    @State private var finished = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private static let colors: [Color] = [Color(red: 11 / 255, green: 87 / 255, blue: 227 / 255), PlugTokens.Color.ink900, .white]
 
     var body: some View {
-        if !reduceMotion {
+        // Gone once it has played, so nothing keeps redrawing above a page people need to scroll.
+        if !reduceMotion, !finished {
             TimelineView(.animation) { context in
                 let elapsed = context.date.timeIntervalSince(start)
                 Canvas { canvas, size in
@@ -1504,6 +1551,10 @@ private struct DemoBurst: View {
                 }
             }
             .allowsHitTesting(false).accessibilityHidden(true)
+            .task {
+                try? await Task.sleep(for: .milliseconds(1500))
+                finished = true
+            }
         }
     }
 }
