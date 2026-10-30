@@ -35,6 +35,12 @@ struct AskView: View {
     var body: some View {
         NavigationStack(path: $path) {
             home
+            .overlay {
+                if DemoMode.isOn, model.isWorking, !model.hasAsk {
+                    DemoReadingOverlay(text: model.text).transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: model.isWorking)
             .navigationDestination(for: Page.self) { _ in
                 answerScreen
                     .background(PlugTokens.Color.paper)
@@ -362,7 +368,10 @@ struct AskView: View {
         voice.stop()
         textFocused = false
         guard model.textError == nil else { return }
-        if let located = location.location {
+        if DemoMode.isOn {
+            // No permission prompt or GPS wait can interrupt a live demo.
+            Task { await model.submit(location: DemoMode.location) }
+        } else if let located = location.location {
             Task { await model.submit(location: located) }
         } else {
             askWhenLocated = true
@@ -441,6 +450,12 @@ struct AskView: View {
                     .accessibilityIdentifier("request-cached")
             }
             failure
+            if DemoMode.isOn {
+                DemoNotice()
+                if let reading = DemoReading(request: model.request, place: model.placeQuestion) {
+                    DemoUnderstoodCard(reading: reading, seconds: model.readSeconds).id(model.askId)
+                }
+            }
             Group {
                 if let question = model.askQuestion {
                     questionCard(question)
@@ -458,6 +473,11 @@ struct AskView: View {
                 DisclosureGroup("Request reference") {
                     Text(reference).plugText(.caption).textSelection(.enabled)
                 }.plugText(.caption).foregroundStyle(PlugTokens.Color.ink600)
+            }
+        }
+        .overlay {
+            if DemoMode.isOn, !model.offers.isEmpty || model.placeQuestion?.status == .answered {
+                DemoBurst().id(answerState)
             }
         }
         .navigationTitle("Your ask")
@@ -543,6 +563,7 @@ struct AskView: View {
                         .plugText(.bodySmall).foregroundStyle(PlugTokens.Color.ink600)
                 }
             }
+            if DemoMode.isOn { DemoRadar(contacted: p.contacted, replied: p.replied) }
             FlowMetrics(items: [("Notified", "\(p.contacted)", "person.2"),
                                 ("Replied", "\(p.replied)", "bubble.left"),
                                 ("Offers", "\(p.offersReady)", "tray")])
@@ -554,7 +575,8 @@ struct AskView: View {
         .marketCard().accessibilityIdentifier("request-progress")
     }
     private func workingTitle(_ request: ServiceRequest) -> some View {
-        Text("Asking \(request.constraints.serviceName?.lowercased() ?? "providers") nearby")
+        Text(DemoMode.isOn ? "Asking nearby: \(request.constraints.serviceName?.lowercased() ?? "local help")"
+             : "Asking \(request.constraints.serviceName?.lowercased() ?? "providers") nearby")
             .font(.system(.title3, design: .rounded, weight: .bold)).foregroundStyle(PlugTokens.Color.ink900)
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -638,7 +660,10 @@ struct AskView: View {
                     Text("Offer ends " + offer.expiresAt.formatted(date: .omitted, time: .shortened))
                         .plugText(.caption).foregroundStyle(PlugTokens.Color.ink600)
                 }.marketCard()
+                .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .scale(scale: 0.9)).combined(with: .opacity),
+                                        removal: .opacity))
             }
+            .animation(DemoMode.isOn && !reduceMotion ? .spring(duration: 0.55, bounce: 0.35) : nil, value: model.offers.count)
         }
     }
     private func comparisonPrice(_ offer: ServiceOffer) -> some View {
@@ -661,6 +686,7 @@ struct AskView: View {
                 FlowEmblem(symbol: "mappin.and.ellipse", size: 72)
                 placeTitle(place)
                 Text("Checking with people nearby.").plugText(.body).foregroundStyle(PlugTokens.Color.ink600)
+                if DemoMode.isOn { DemoRadar(contacted: place.progress.notified, replied: place.progress.answered) }
                 FlowMetrics(items: [("Notified", "\(place.progress.notified)", "person.2"),
                                     ("Opened", "\(place.progress.opened)", "envelope.open"),
                                     ("Answered", "\(place.progress.answered)", "bubble.left")])
@@ -672,7 +698,7 @@ struct AskView: View {
                     FlowEmblem(symbol: "bubble.left.and.bubble.right", size: 52)
                     Text(place.placeName ?? "From nearby").font(.system(.title3, design: .rounded, weight: .bold))
                 }
-                ResultHeadline(value: answer.value, label: answer.truthLabel)
+                ResultHeadline(value: answer.value, label: answer.truthLabel).modifier(DemoPop())
                 Text(answer.summary).plugText(.body).foregroundStyle(PlugTokens.Color.ink900)
                 if !answer.sources.isEmpty {
                     VStack(alignment: .leading, spacing: PlugTokens.Space.s2) {
@@ -742,14 +768,29 @@ struct AskView: View {
     }
 
     @ViewBuilder private var actions: some View {
-        if let request = model.request, request.status.canCancel {
+        if DemoMode.isOn, model.request?.status.canCancel == true {
+            // On stage the next ask is one tap away; the request closes behind it.
+            Button("Ask something else") {
+                Task {
+                    await model.cancel()
+                    model.startAgain()
+                    model.text = ""
+                    showValidation = false
+                }
+            }
+            .buttonStyle(FlowActionStyle(primary: true)).disabled(model.isWorking)
+        } else if let request = model.request, request.status.canCancel {
             Button("Stop asking") { Task { await model.cancel() } }
                 .buttonStyle(FlowActionStyle(destructive: true))
                 .disabled(model.isWorking)
                 .accessibilityIdentifier("request-cancel")
         } else if model.placeQuestion?.status != .asking {
             // While the one question is open, answering it is the task; starting over is secondary.
-            Button("Ask something else") { model.startAgain(); showValidation = false }
+            Button("Ask something else") {
+                model.startAgain()
+                if DemoMode.isOn { model.text = "" }
+                showValidation = false
+            }
                 .buttonStyle(FlowActionStyle(primary: model.askQuestion == nil && model.request?.clarification == nil))
                 .disabled(model.isWorking)
         }
@@ -1271,5 +1312,198 @@ struct FlowActionStyle: ButtonStyle {
             .overlay(RoundedRectangle(cornerRadius: 16)
                 .strokeBorder(primary && enabled ? Color.clear : PlugTokens.Color.rule300))
             .opacity(configuration.isPressed ? 0.7 : 1)
+    }
+}
+
+// MARK: - Hackathon demo mode (ADR-015)
+
+/// On only in a Debug build launched with PLUG_DEMO_MODE=YES, so it cannot reach a shipping app.
+enum DemoMode {
+    static var isOn: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.environment["PLUG_DEMO_MODE"] == "YES"
+        #else
+        false
+        #endif
+    }
+    /// Central Austin, the launch zone. Providers and neighbours in demo mode are placed around it.
+    static let location = RequestLocation(latitude: 30.2672, longitude: -97.7431, precision: .coarse)
+    static var modelName: String { ProcessInfo.processInfo.environment["PLUG_DEMO_MODEL"] ?? "Open-weight AI" }
+}
+
+/// Every answer on stage says what it is: simulated people, not real ones.
+private struct DemoNotice: View {
+    var body: some View {
+        Label("Live demo: AI is real, neighbours are simulated", systemImage: "theatermasks")
+            .plugText(.caption).foregroundStyle(PlugTokens.Color.ink600)
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .overlay(Capsule().strokeBorder(PlugTokens.Color.ink400, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+            .accessibilityIdentifier("demo-notice")
+    }
+}
+
+private struct DemoReadingOverlay: View {
+    let text: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private static let blue = Color(red: 11 / 255, green: 87 / 255, blue: 227 / 255)
+
+    var body: some View {
+        ZStack {
+            Self.blue.ignoresSafeArea()
+            VStack(spacing: 26) {
+                TimelineView(.animation(paused: reduceMotion)) { context in
+                    let t = context.date.timeIntervalSinceReferenceDate
+                    ZStack {
+                        ForEach(0..<3, id: \.self) { ring in
+                            let phase = (t / 1.8 + Double(ring) / 3).truncatingRemainder(dividingBy: 1)
+                            Circle().stroke(.white.opacity(0.7 * (1 - phase)), lineWidth: 2)
+                                .frame(width: 90 + 150 * phase, height: 90 + 150 * phase)
+                        }
+                        Image("PlugMark").renderingMode(.template).resizable().scaledToFit()
+                            .frame(height: 72).foregroundStyle(.white)
+                            .scaleEffect(1 + 0.05 * sin(t * 4))
+                    }.frame(height: 240)
+                }
+                Text("Reading your words").font(.system(.title, design: .rounded, weight: .bold)).foregroundStyle(.white)
+                Text(text).font(.system(.body, design: .rounded)).foregroundStyle(.white.opacity(0.9))
+                    .multilineTextAlignment(.center).lineLimit(3).padding(.horizontal, 28)
+                Label("\(DemoMode.modelName) on this Mac. No cloud.", systemImage: "cpu")
+                    .font(.system(.footnote, design: .rounded, weight: .semibold)).foregroundStyle(.white)
+                    .padding(.horizontal, 14).padding(.vertical, 8).background(.white.opacity(0.18), in: Capsule())
+            }
+        }.accessibilityElement(children: .combine).accessibilityIdentifier("demo-reading")
+    }
+}
+
+/// What the model pulled out of the words, one field at a time.
+private struct DemoReading {
+    let kind: String
+    let fields: [(String, String)]
+
+    init?(request: ServiceRequest?, place: PlaceQuestion?) {
+        if let place {
+            kind = "A question about a place"
+            fields = [("Place", place.placeName ?? "Not named")]
+        } else if let c = request?.constraints {
+            kind = "A service request"
+            var found = [("Looking for", c.serviceName ?? "Local help")]
+            if let budget = c.budgetCents { found.append(("Budget", money(budget, c.currency))) }
+            if let by = c.neededBy { found.append(("By", by.formatted(.dateTime.weekday(.wide).hour()))) }
+            fields = found
+        } else {
+            return nil
+        }
+    }
+}
+
+private struct DemoUnderstoodCard: View {
+    let reading: DemoReading
+    let seconds: Double?
+    @State private var shown = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "cpu").font(.system(size: 14, weight: .semibold))
+                Text(DemoMode.modelName).plugText(.label)
+                Spacer(minLength: 8)
+                if let seconds { Text(String(format: "%.1f s on this Mac", seconds)).plugText(.caption).monospacedDigit() }
+            }.foregroundStyle(.white)
+            Text(reading.kind).font(.system(.title3, design: .rounded, weight: .bold)).foregroundStyle(.white)
+            PlugFlowLayout(spacing: 8) {
+                ForEach(Array(reading.fields.enumerated()), id: \.offset) { index, field in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(field.0).font(.system(.caption2, design: .rounded)).foregroundStyle(.white.opacity(0.8))
+                        Text(field.1).font(.system(.subheadline, design: .rounded, weight: .bold)).foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 12))
+                    .scaleEffect(shown > index ? 1 : 0.6).opacity(shown > index ? 1 : 0)
+                }
+            }
+        }
+        .padding(18).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(red: 11 / 255, green: 87 / 255, blue: 227 / 255), in: RoundedRectangle(cornerRadius: 22))
+        .accessibilityElement(children: .combine).accessibilityIdentifier("demo-understood")
+        .task {
+            for index in reading.fields.indices {
+                try? await Task.sleep(for: .milliseconds(reduceMotion ? 0 : 260))
+                withAnimation(reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.5)) { shown = index + 1 }
+            }
+        }
+    }
+}
+
+/// Dots light up from the server's real reply counts; the sweep is only decoration around them.
+private struct DemoRadar: View {
+    let contacted: Int
+    let replied: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private static let blue = Color(red: 11 / 255, green: 87 / 255, blue: 227 / 255)
+
+    var body: some View {
+        TimelineView(.animation(paused: reduceMotion)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            Canvas { canvas, size in
+                let centre = CGPoint(x: size.width / 2, y: size.height / 2)
+                let radius = min(size.width, size.height) / 2 - 8
+                for ring in 0..<3 {
+                    let phase = (t / 2.4 + Double(ring) / 3).truncatingRemainder(dividingBy: 1)
+                    let r = radius * phase
+                    canvas.stroke(Path(ellipseIn: CGRect(x: centre.x - r, y: centre.y - r, width: 2 * r, height: 2 * r)),
+                                  with: .color(Self.blue.opacity(0.55 * (1 - phase))), lineWidth: 2)
+                }
+                canvas.fill(Path(ellipseIn: CGRect(x: centre.x - 7, y: centre.y - 7, width: 14, height: 14)), with: .color(Self.blue))
+                let spots: [(Double, Double)] = [(-2.5, 0.72), (-0.6, 0.86), (1.3, 0.6), (2.6, 0.9), (0.5, 0.45)]
+                for (index, spot) in spots.prefix(max(contacted, 0)).enumerated() {
+                    let point = CGPoint(x: centre.x + cos(spot.0) * radius * spot.1, y: centre.y + sin(spot.0) * radius * spot.1)
+                    let lit = index < replied
+                    let size: CGFloat = lit ? 18 : 12
+                    canvas.fill(Path(ellipseIn: CGRect(x: point.x - size / 2, y: point.y - size / 2, width: size, height: size)),
+                                with: .color(lit ? PlugTokens.Color.ink900 : Self.blue.opacity(0.45)))
+                }
+            }
+        }
+        .frame(height: 120).accessibilityHidden(true).animation(.spring(duration: 0.4), value: replied)
+    }
+}
+
+private struct DemoPop: ViewModifier {
+    @State private var shown = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(shown || !DemoMode.isOn || reduceMotion ? 1 : 0.5, anchor: .leading)
+            .onAppear { withAnimation(.spring(duration: 0.6, bounce: 0.55)) { shown = true } }
+    }
+}
+
+/// A short burst when a result lands. It sits above the page and never takes a tap.
+private struct DemoBurst: View {
+    @State private var start = Date()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private static let colors: [Color] = [Color(red: 11 / 255, green: 87 / 255, blue: 227 / 255), PlugTokens.Color.ink900, .white]
+
+    var body: some View {
+        if !reduceMotion {
+            TimelineView(.animation) { context in
+                let elapsed = context.date.timeIntervalSince(start)
+                Canvas { canvas, size in
+                    guard elapsed < 1.4 else { return }
+                    for index in 0..<46 {
+                        let seed = Double(index) * 12.9898
+                        let angle = seed.truncatingRemainder(dividingBy: 6.283)
+                        let speed = 240 + (seed * 3.7).truncatingRemainder(dividingBy: 300)
+                        let x = size.width / 2 + cos(angle) * speed * elapsed
+                        let y = size.height * 0.38 + sin(angle) * speed * elapsed + 340 * elapsed * elapsed
+                        let piece = CGRect(x: x, y: y, width: 9, height: 9)
+                        canvas.fill(Path(roundedRect: piece, cornerRadius: 2),
+                                    with: .color(Self.colors[index % 3].opacity(max(0, 1 - elapsed / 1.4))))
+                    }
+                }
+            }
+            .allowsHitTesting(false).accessibilityHidden(true)
+        }
     }
 }

@@ -61,6 +61,14 @@ class IntentAdapterTest {
             assertThat(result.clarificationOptions()).extracting(RequestPayloads.Option::value).contains("place_question", "barber");
         }
     }
+    @Test void aPlaceNameFromTheModelDropsALeadingThe() {
+        String reading = "{\"ask_type\":\"place_question\",\"skill_tags\":[],\"place_name\":\"the post office on Ben White\","
+                + "\"budget_cents\":null,\"needed_by\":null,\"max_distance_m\":null,\"service_label\":null,\"restricted\":false}";
+        try (var adapter = adapter((text, now, zone, deadline) -> reading)) {
+            assertThat(ask(adapter, "How long is the line at the post office on Ben White?").placeName())
+                    .isEqualTo("Post office on Ben White");
+        }
+    }
     @Test void oneFieldTakesBothKindsOfAsk() {
         try (var adapter = adapter(NONE)) {
             var braids = ask(adapter, "Someone to do knotless braids, $120 max, Saturday morning");

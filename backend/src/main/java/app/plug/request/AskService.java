@@ -36,6 +36,7 @@ public class AskService {
     private final IntentAdapter intent;
     private final RestrictedIntentPolicy policy;
     private final RequestService requests;
+    private DemoNeighbourhood demo;
 
     public AskService(JdbcTemplate jdbc, PlatformTransactionManager manager, ObjectMapper mapper, Clock clock,
             IntentAdapter intent, RestrictedIntentPolicy policy, RequestService requests) {
@@ -46,6 +47,11 @@ public class AskService {
         this.intent = intent;
         this.policy = policy;
         this.requests = requests;
+    }
+
+    AskService withDemo(DemoNeighbourhood neighbourhood) {
+        this.demo = neighbourhood;
+        return this;
     }
 
     public AskResult create(PlugPrincipal caller, String key, AskBody body) {
@@ -135,9 +141,10 @@ public class AskService {
                         row.get("latitude"), row.get("longitude"), time(now), time(now.plus(PLACE_WINDOW)));
                 jdbc.update("UPDATE asks SET ask_type='place_question',place_question_id=?,updated_at=? WHERE id=?",
                         questionId, time(now), id);
+                if (demo != null) demo.open(questionId, text, result.placeName() == null ? "this place" : result.placeName());
             }
             case SERVICE_REQUEST -> {
-                var request = requests.insert(caller, text, result);
+                var request = requests.insert(caller, text, demo == null ? result : DemoNeighbourhood.withoutQuestion(result));
                 jdbc.update("UPDATE asks SET ask_type='service_request',request_id=?,updated_at=? WHERE id=?",
                         request.requestId(), time(now), id);
             }
@@ -166,10 +173,11 @@ public class AskService {
     }
 
     private PlaceQuestion place(String id) {
-        return jdbc.queryForObject("SELECT * FROM place_questions WHERE id=?", (rs, n) -> new PlaceQuestion(rs.getString("id"),
+        PlaceQuestion stored = jdbc.queryForObject("SELECT * FROM place_questions WHERE id=?", (rs, n) -> new PlaceQuestion(rs.getString("id"),
                 rs.getString("text"), rs.getString("place_name"), rs.getString("status"),
                 new PlaceProgress(rs.getInt("notified"), rs.getInt("opened"), rs.getInt("answered")), null, null,
                 rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("expires_at").toInstant()), id);
+        return demo == null ? stored : demo.overlay(stored);
     }
 
     private void lockOwned(PlugPrincipal caller, String id) {

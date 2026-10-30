@@ -4,6 +4,12 @@ PLUG helps people find verified local services, live availability, pricing, and 
 
 This repository is the V1 monorepo for two engineers. The backend is a Java 21 / Spring Boot 3 modular monolith, the iOS client is SwiftUI, `web/` is the Next.js public site and admin console, and `contracts/openapi.yaml` is the shared API source of truth.
 
+## Open-weight AI
+
+PLUG reads every ask with an open-weight model running on your own machine through [Ollama](https://ollama.com): no cloud and no API key. The default model is Qwen 3 (`qwen3:4b`). The model classifies the ask and pulls out the skill, budget, time and place. The server validates everything it returns, and safety rules run before it. See [ADR-015](docs/decisions/ADR-015-open-weight-ai-and-demo-mode.md).
+
+To run the live demo, follow [DEMO.md](DEMO.md). PLUG is released under the [MIT License](LICENSE).
+
 **Read `PROJECT_STATE.json` first.** It says which phase the project is in, who owns the next step, and what must not be touched.
 
 ## Start here

@@ -191,8 +191,10 @@ public class IntentAdapter implements AutoCloseable {
         }
 
         if (type == AskType.PLACE_QUESTION) {
-            String place = model != null && model.placeName() != null ? model.placeName() : placeName(input.text());
-            return new Result(type, null, null, null, place);
+            // The rules leave out a leading "the"; the model sometimes keeps it, so headings read the same either way.
+            String place = model != null && model.placeName() != null
+                    ? model.placeName().replaceFirst("(?i)^the\\s+(?=\\S)", "") : placeName(input.text());
+            return new Result(type, null, null, null, heading(place));
         }
 
         List<SkillVocabulary.Skill> skills = input.category() != null ? List.of(vocabulary.get(input.category()))
@@ -230,6 +232,11 @@ public class IntentAdapter implements AutoCloseable {
     public List<SkillVocabulary.Skill> proposedSkills(String description) {
         Extracted model = provided(description, ZoneOffset.UTC);
         return model == null ? List.of() : vocabulary.resolve(model.skillTags());
+    }
+
+    /// A place name starts a heading on screen, so it starts with a capital.
+    private static String heading(String place) {
+        return place == null || place.isEmpty() ? place : place.substring(0, 1).toUpperCase(Locale.ROOT) + place.substring(1);
     }
 
     static String placeName(String text) {

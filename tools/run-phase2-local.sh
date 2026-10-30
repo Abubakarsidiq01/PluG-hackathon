@@ -21,7 +21,8 @@ if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
         if [ -n "$plug_key" ]; then export ANTHROPIC_API_KEY="$plug_key"; break; fi
     done
 fi
-if [ -n "${ANTHROPIC_API_KEY:-}" ]; then echo 'Intent extraction: Claude (rules on any failure).'
+if [ -n "${PLUG_OLLAMA_MODEL:-}" ]; then echo "Intent extraction: $PLUG_OLLAMA_MODEL on this machine (rules on any failure)."
+elif [ -n "${ANTHROPIC_API_KEY:-}" ]; then echo 'Intent extraction: Claude (rules on any failure).'
 else echo 'Intent extraction: built-in rules (set ANTHROPIC_API_KEY in secrets/anthropic.env for Claude).'; fi
 
 # ADR-013 staff accounts. secrets/staff.env may set PLUG_STAFF_OWNER_EMAIL (the first owner,

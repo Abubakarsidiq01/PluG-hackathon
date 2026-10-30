@@ -5,6 +5,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.Set;
 import java.util.TreeSet;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -32,14 +33,31 @@ public class RequestV2Configuration {
         return vocabulary;
     }
     @Bean RestrictedIntentPolicy restrictedIntentPolicy() { return new RestrictedIntentPolicy(); }
-    // Claude only when a key is configured; otherwise the null provider leaves the rules in charge.
+    // An open-weight model on this machine when one is named (ADR-015), else Claude when a key
+    // is configured; otherwise the null provider leaves the rules in charge.
     @Bean
     @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean(IntentAdapter.Provider.class)
     IntentAdapter.Provider intentProvider(@Value("${plug.requests-v2.anthropic-api-key:}") String apiKey,
             @Value("${plug.requests-v2.anthropic-model:claude-sonnet-5-5}") String model,
-            @Value("${plug.requests-v2.intent-timeout:6s}") Duration timeout, SkillVocabulary vocabulary) {
+            @Value("${plug.requests-v2.intent-timeout:6s}") Duration timeout, SkillVocabulary vocabulary,
+            ObjectProvider<OllamaClient> openWeight) {
+        OllamaClient local = openWeight.getIfAvailable();
+        if (local != null) return new OllamaIntentProvider(local, vocabulary);
         if (apiKey.isBlank()) return (text, now, zone, deadline) -> null;
         return new ClaudeIntentProvider(apiKey, model, timeout, vocabulary);
+    }
+    @Bean
+    @ConditionalOnProperty(prefix = "plug.requests-v2", name = "ollama-model")
+    OllamaClient ollamaClient(ObjectMapper mapper, @Value("${plug.requests-v2.ollama-url}") String url,
+            @Value("${plug.requests-v2.ollama-model}") String model) {
+        return model.isBlank() ? null : new OllamaClient(mapper, url, model);
+    }
+    @Bean
+    @ConditionalOnProperty(prefix = "plug.demo", name = "enabled", havingValue = "true")
+    DemoNeighbourhood demoNeighbourhood(JdbcTemplate jdbc, RequestClock clock, ObjectMapper mapper,
+            ObjectProvider<OllamaClient> openWeight, @Value("${plug.environment}") String environment) {
+        if (!"local".equals(environment)) throw new IllegalStateException("Demo mode runs only in a local environment");
+        return new DemoNeighbourhood(jdbc, clock.clock(), mapper, openWeight.getIfAvailable());
     }
     @Bean RequestClock requestClock(Clock clock) { return new RequestClock(clock); }
     @Bean CustomSkills customSkills(JdbcTemplate jdbc) { return new CustomSkills(jdbc); }
@@ -53,8 +71,9 @@ public class RequestV2Configuration {
     }
     @Bean MatchService matchService(JdbcTemplate jdbc, RequestClock clock) { return new MatchService(jdbc, clock.clock()); }
     @Bean AskService askService(JdbcTemplate jdbc, PlatformTransactionManager manager, ObjectMapper mapper, RequestClock clock,
-            IntentAdapter intent, RestrictedIntentPolicy policy, RequestService requests) {
-        return new AskService(jdbc, manager, mapper, clock.clock(), intent, policy, requests);
+            IntentAdapter intent, RestrictedIntentPolicy policy, RequestService requests,
+            ObjectProvider<DemoNeighbourhood> demo) {
+        return new AskService(jdbc, manager, mapper, clock.clock(), intent, policy, requests).withDemo(demo.getIfAvailable());
     }
     @Bean ProviderService providerService(JdbcTemplate jdbc, PlatformTransactionManager manager, RequestClock clock,
             IntentAdapter intent, RestrictedIntentPolicy policy, RequestService requests, CustomSkills customSkills) {

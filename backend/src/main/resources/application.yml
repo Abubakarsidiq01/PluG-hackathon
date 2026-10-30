@@ -47,12 +47,18 @@ plug:
   requests-per-minute: 60
   # The per-minute limits' window, in seconds. Only a disposable local run may shorten it.
   rate-window-seconds: ${PLUG_RATE_WINDOW_SECONDS:60}
+  # Simulated neighbourhood for live demos (ADR-015). Refused outside a local environment.
+  demo:
+    enabled: ${PLUG_DEMO_MODE:false}
   requests-v2:
     enabled: ${PLUG_REQUESTS_V2_ENABLED:false}
     # Intent extraction (ADR-009). Empty key: the built-in rules extract everything.
     anthropic-api-key: ${ANTHROPIC_API_KEY:}
     anthropic-model: ${PLUG_ANTHROPIC_MODEL:claude-sonnet-5-5}
     intent-timeout: ${PLUG_INTENT_TIMEOUT:6s}
+    # An open-weight model served by Ollama on this machine (ADR-015). Empty: not used.
+    ollama-model: ${PLUG_OLLAMA_MODEL:}
+    ollama-url: ${PLUG_OLLAMA_URL:http://127.0.0.1:11434}
   sms:
     account-sid: ${PLUG_SMS_ACCOUNT_SID:}
     auth-token: ${PLUG_SMS_AUTH_TOKEN:}

@@ -57,12 +57,17 @@ final class ClaudeIntentProvider implements IntentAdapter.Provider {
     private final String system;
 
     ClaudeIntentProvider(String apiKey, String model, Duration timeout, SkillVocabulary vocabulary) {
-        StringBuilder tags = new StringBuilder(INSTRUCTIONS);
-        vocabulary.all().forEach(skill -> tags.append(skill.tag()).append(" (").append(skill.display()).append(")\n"));
-        this.system = tags.toString();
+        this.system = instructions(vocabulary);
         // No SDK retries: the adapter's deadline is the whole budget, and the rules are the retry.
         this.client = AnthropicOkHttpClient.builder().apiKey(apiKey).timeout(timeout).maxRetries(0).build();
         this.model = model;
+    }
+
+    /** The same instructions drive whichever model is configured. */
+    static String instructions(SkillVocabulary vocabulary) {
+        StringBuilder tags = new StringBuilder(INSTRUCTIONS);
+        vocabulary.all().forEach(skill -> tags.append(skill.tag()).append(" (").append(skill.display()).append(")\n"));
+        return tags.toString();
     }
 
     @Override

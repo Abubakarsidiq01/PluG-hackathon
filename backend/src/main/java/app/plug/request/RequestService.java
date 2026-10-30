@@ -48,6 +48,9 @@ public class RequestService {
     private final String consent;
     final FixedWindowLimiter limiter = new FixedWindowLimiter(4096);
     final RateWindow window;
+    private DemoNeighbourhood demo;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setDemo(DemoNeighbourhood neighbourhood) { this.demo = neighbourhood; }
     public RequestService(JdbcTemplate jdbc, PlatformTransactionManager manager, ObjectMapper mapper, RequestClock clock,
             IntentAdapter intent, RestrictedIntentPolicy policy, MatchService matches, RateWindow window,
             @Value("${plug.identity.consent-version}") String consent) {
@@ -324,7 +327,8 @@ public class RequestService {
     }
     private void route(Resource resource) {
         Constraints c = resource.constraints();
-        jdbc.update("INSERT INTO request_seed_work(request_id,place_id,distance_m)"
+        if (demo != null) demo.seedProviders(resource);
+        else jdbc.update("INSERT INTO request_seed_work(request_id,place_id,distance_m)"
                 + " SELECT ?,p.id,round(ST_Distance(p.location,ST_SetSRID(ST_MakePoint(?,?),4326)::geography))::integer"
                 + " FROM places p JOIN supplier_seeds s ON s.place_id=p.id WHERE p.category = ANY(?) AND s.enabled"
                 + " AND ST_DWithin(p.location,ST_SetSRID(ST_MakePoint(?,?),4326)::geography,?)"
@@ -338,6 +342,7 @@ public class RequestService {
     }
     private void reply(Resource resource) {
         String id = resource.requestId();
+        if (demo != null && !demo.readyForNextReply(resource)) return;
         var rows = jdbc.queryForList("SELECT w.place_id,s.service_name,s.price_cents,s.available_after_minutes,s.valid_for_minutes"
                 + " FROM request_seed_work w JOIN supplier_seeds s ON s.place_id=w.place_id"
                 + " WHERE w.request_id=? AND w.replied_at IS NULL ORDER BY w.distance_m,w.place_id LIMIT 1", id);

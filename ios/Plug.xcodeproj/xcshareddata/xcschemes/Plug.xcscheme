@@ -63,7 +63,22 @@
       <EnvironmentVariables>
          <EnvironmentVariable
             key = "PLUG_API_URL"
-            value = "http://127.0.0.1:8080"
+            value = "http://127.0.0.1:18080"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "PLUG_REQUESTS_V2_ENABLED"
+            value = "YES"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "PLUG_DEMO_MODE"
+            value = "YES"
+            isEnabled = "YES">
+         </EnvironmentVariable>
+         <EnvironmentVariable
+            key = "PLUG_DEMO_MODEL"
+            value = "Qwen 3"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>

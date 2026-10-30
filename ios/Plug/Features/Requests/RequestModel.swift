@@ -29,7 +29,9 @@ final class RequestModel: ObservableObject {
     private var createAttempt: (body: AskBody, key: String)?
     private var answerAttempt: (id: String, value: String, key: String)?
     private var active = true
-    static let placePollSeconds = 5
+    static var placePollSeconds: Int { DemoMode.isOn ? 1 : 5 }
+    /// How long the last ask took to read, shown only in demo mode (ADR-015).
+    @Published private(set) var readSeconds: Double?
 
     init(service: RequestServing, now: @escaping () -> Date = Date.init,
          sleep: @escaping (Int) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }) {
@@ -61,9 +63,11 @@ final class RequestModel: ObservableObject {
         if createAttempt?.body != body { createAttempt = (body, UUID().uuidString) }
         guard let attempt = createAttempt else { return }
         let token = begin()
+        let started = now()
         do {
             let result = try await service.ask(attempt.body, key: attempt.key)
             guard revision == token else { return }
+            readSeconds = now().timeIntervalSince(started)
             try await accept(result, token: token)
         } catch { fail(error, token: token, creating: true) }
         finish(token)
